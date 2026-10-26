@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSF Lab Copier</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #16191d; --muted: #5b6470;
+    --line: #dfe3e8; --accent: #2457d6; --accent-text: #fff; --ok: #1a7f4b; --code-bg: #0f1419; --code-text: #e6e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --card: #171b22; --text: #e8ebef; --muted: #98a1ad; --line: #2a303a; --accent: #5b8cff; --accent-text: #0b0e13; --ok: #4cc38a; --code-bg: #0a0d11; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .copy-btn { font: inherit; font-weight: 700; font-size: 1.25rem; padding: 18px 0; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); border-radius: 10px; cursor: pointer; transition: transform .08s; }
+  .copy-btn:hover { filter: brightness(1.08); }
+  .copy-btn:active { transform: scale(.97); }
+  .copy-btn:focus-visible, .small:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+  .copy-btn.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 4px; }
+  .files { color: var(--muted); font-size: .9rem; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .small { font: inherit; font-size: .9rem; padding: 7px 12px; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 8px; cursor: pointer; }
+  .small:hover { border-color: var(--accent); }
+  .small[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  pre { margin: 0; background: var(--code-bg); color: var(--code-text); padding: 14px; border-radius: 8px; overflow: auto; max-height: 60vh; font: 13px/1.5 ui-monospace, Consolas, monospace; tab-size: 4; user-select: all; }
+  #status { min-height: 1.5em; margin: 0 0 12px; font-weight: 600; color: var(--ok); }
+  #status.err { color: #c0392b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Java &amp; Spring Lab - Program Copier</h1>
+  <p class="sub">One click copies every file of the experiment, in order, with an index header.</p>
+
+  <div class="grid" id="buttons"></div>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section class="card" id="viewer" hidden>
+    <h2 id="v-title"></h2>
+    <p class="files" id="v-files"></p>
+    <div class="row">
+      <button class="small" id="v-copy" type="button">Copy again</button>
+      <button class="small" id="v-select" type="button">Select all</button>
+      <button class="small" id="v-close" type="button">Close</button>
+    </div>
+    <pre id="v-code" tabindex="0"></pre>
+  </section>
+</main>
+<script src="programs.js"></script>
+<script>
+  var exps = window.EXPERIMENTS;
+  var statusEl = document.getElementById("status");
+  var viewer = document.getElementById("viewer");
+  var current = null;
+
+  function build(exp) {
+    var n = exp.files.length;
+    var sep = "=".repeat(60);
+    var out = [sep, exp.title.toUpperCase(), "Files (" + n + "):"];
+    exp.files.forEach(function (f, i) { out.push("  " + (i + 1) + ". " + f.name); });
+    out.push(sep, "");
+    exp.files.forEach(function (f, i) {
+      out.push(sep, "FILE " + (i + 1) + " of " + n + ": " + f.name, sep, "", f.code, "", "");
+    });
+    return out.join("\n").replace(/\s+$/, "") + "\n";
+  }
+
+  function say(msg, err) { statusEl.textContent = msg; statusEl.className = err ? "err" : ""; }
+
+  function legacyCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacyCopy(text); });
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+
+  function show(exp) {
+    current = exp;
+    document.getElementById("v-title").textContent = exp.title;
+    document.getElementById("v-files").textContent = exp.files.map(function (f, i) { return (i + 1) + ". " + f.name; }).join("   ");
+    document.getElementById("v-code").textContent = build(exp);
+    viewer.hidden = false;
+    viewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function doCopy(exp, btn) {
+    copyText(build(exp)).then(function (ok) {
+      if (ok) {
+        say("Copied " + exp.id + " (" + exp.files.length + " file" + (exp.files.length > 1 ? "s" : "") + ") to clipboard.");
+        if (btn) { btn.classList.add("done"); setTimeout(function () { btn.classList.remove("done"); }, 1500); }
+      } else {
+        say("Copy was blocked - showing the code below. Use Select all, then copy.", true);
+        show(exp);
+      }
+    });
+  }
+
+  var holder = document.getElementById("buttons");
+  exps.forEach(function (exp) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "copy-btn"; b.textContent = exp.id;
+    b.title = exp.title + " - click to copy";
+    b.addEventListener("click", function () { show(exp); doCopy(exp, b); });
+    holder.appendChild(b);
+  });
+
+  document.getElementById("v-copy").addEventListener("click", function () { if (current) doCopy(current); });
+  document.getElementById("v-close").addEventListener("click", function () { viewer.hidden = true; });
+  document.getElementById("v-select").addEventListener("click", function () {
+    var r = document.createRange(); r.selectNodeContents(document.getElementById("v-code"));
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  });
+</script>
+</body>
+</html>
